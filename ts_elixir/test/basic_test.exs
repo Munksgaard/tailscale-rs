@@ -42,4 +42,86 @@ defmodule Tailscale.Test do
       {:ok, _sock} = Tailscale.Tcp.listen(dev, ip, 1234)
     end
   end
+
+  describe "tcp recv" do
+    setup [:connected_client]
+
+    defp tcp_pair(dev, ip, port) do
+      {:ok, listener} = Tailscale.Tcp.listen(dev, ip, port)
+
+      accept_task = Task.async(fn -> Tailscale.Tcp.Listener.accept(listener) end)
+      {:ok, client} = Tailscale.Tcp.connect(dev, ip, port)
+      {:ok, server} = Task.await(accept_task)
+
+      {client, server}
+    end
+
+    @tag skip: @net_skip
+    test "recv/2 returns at most max_bytes", %{ts: dev, ipv4: ip} do
+      {client, server} = tcp_pair(dev, ip, 2001)
+
+      :ok = Tailscale.Tcp.Stream.send_all(client, "hello world")
+      {:ok, data} = Tailscale.Tcp.Stream.recv(server, 5)
+
+      assert byte_size(data) <= 5
+    end
+
+    @tag skip: @net_skip
+    test "recv/2 with max_bytes 0 returns available data", %{ts: dev, ipv4: ip} do
+      {client, server} = tcp_pair(dev, ip, 2002)
+
+      :ok = Tailscale.Tcp.Stream.send_all(client, "hello")
+      {:ok, data} = Tailscale.Tcp.Stream.recv(server, 0)
+
+      assert data == "hello"
+    end
+
+    @tag skip: @net_skip
+    test "recv/3 with timeout returns data when available", %{ts: dev, ipv4: ip} do
+      {client, server} = tcp_pair(dev, ip, 2003)
+
+      :ok = Tailscale.Tcp.Stream.send_all(client, "hi")
+      {:ok, data} = Tailscale.Tcp.Stream.recv(server, 10, 5000)
+
+      assert data == "hi"
+    end
+
+    @tag skip: @net_skip
+    test "recv/3 returns {:error, :timeout} when no data arrives", %{ts: dev, ipv4: ip} do
+      {_client, server} = tcp_pair(dev, ip, 2004)
+
+      assert {:error, :timeout} = Tailscale.Tcp.Stream.recv(server, 10, 100)
+    end
+
+    @tag skip: @net_skip
+    test "recv/3 with :infinity timeout blocks until data", %{ts: dev, ipv4: ip} do
+      {client, server} = tcp_pair(dev, ip, 2005)
+
+      Task.async(fn ->
+        Process.sleep(100)
+        Tailscale.Tcp.Stream.send_all(client, "delayed")
+      end)
+
+      {:ok, data} = Tailscale.Tcp.Stream.recv(server, 100, :infinity)
+      assert data == "delayed"
+    end
+
+    @tag skip: @net_skip
+    test "recv/2 multiple reads consume stream incrementally", %{ts: dev, ipv4: ip} do
+      {client, server} = tcp_pair(dev, ip, 2006)
+
+      :ok = Tailscale.Tcp.Stream.send_all(client, "abcdefghij")
+
+      # Read in small chunks — we may get fewer bytes than max_bytes per read,
+      # but accumulating should yield the full payload.
+      {:ok, chunk1} = Tailscale.Tcp.Stream.recv(server, 4)
+      assert byte_size(chunk1) <= 4 and byte_size(chunk1) > 0
+
+      # Keep reading until we have all 10 bytes
+      remaining = 10 - byte_size(chunk1)
+      {:ok, chunk2} = Tailscale.Tcp.Stream.recv(server, remaining)
+
+      assert chunk1 <> chunk2 == "abcdefghij"
+    end
+  end
 end

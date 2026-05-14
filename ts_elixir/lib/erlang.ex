@@ -36,6 +36,8 @@ defmodule :tailscale_tcp_stream do
   defdelegate send(stream, msg), to: Tailscale.Tcp.Stream
   defdelegate send_all(stream, msg), to: Tailscale.Tcp.Stream
   defdelegate recv(stream), to: Tailscale.Tcp.Stream
+  defdelegate recv(stream, max_bytes), to: Tailscale.Tcp.Stream
+  defdelegate recv(stream, max_bytes, timeout), to: Tailscale.Tcp.Stream
   defdelegate local_addr(stream), to: Tailscale.Tcp.Stream
   defdelegate remote_addr(stream), to: Tailscale.Tcp.Stream
 end

@@ -104,6 +104,48 @@ fn tcp_recv(env: rustler::Env, sock: ResourceArc<TcpStream>) -> impl Encoder {
     erl_result(env, buf)
 }
 
+/// Receive up to `max_len` bytes from the stream, with an optional timeout.
+///
+/// `max_len`: maximum number of bytes to read. If 0, returns whatever is available.
+/// `timeout_ms`: timeout in milliseconds, or 0 for no timeout (block indefinitely).
+///
+/// Blocks until at least one byte is available or the timeout expires.
+/// Returns `{:error, "timeout"}` if the timeout expires before data arrives.
+#[rustler::nif(schedule = "DirtyIo")]
+fn tcp_recv_max(
+    env: rustler::Env,
+    sock: ResourceArc<TcpStream>,
+    max_len: usize,
+    timeout_ms: u64,
+) -> impl Encoder {
+    let inner = sock.inner.clone();
+
+    let buf = TOKIO_RUNTIME.block_on(async move {
+        let fut = async {
+            if max_len == 0 {
+                let buf = inner.recv_bytes().await?;
+                Result::<_>::Ok(buf.to_vec())
+            } else {
+                let mut buf = vec![0u8; max_len];
+                let n = inner.recv(&mut buf).await?;
+                buf.truncate(n);
+                Result::<_>::Ok(buf)
+            }
+        };
+
+        if timeout_ms == 0 {
+            fut.await
+        } else {
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms), fut).await {
+                Ok(result) => result,
+                Err(_) => Err("timeout".into()),
+            }
+        }
+    });
+
+    erl_result(env, buf)
+}
+
 #[rustler::nif]
 fn tcp_local_addr(env: rustler::Env, sock: ResourceArc<TcpStream>) -> impl Encoder {
     crate::sockaddr_to_erl(env, sock.inner.local_addr())

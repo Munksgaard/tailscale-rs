@@ -130,6 +130,18 @@ defmodule Tailscale.Native do
   def tcp_recv(_stream), do: err()
 
   @doc """
+  Receive up to `max_len` bytes from the tcp socket, with an optional timeout.
+
+  `max_len`: maximum bytes to read (0 = return whatever is available).
+  `timeout_ms`: timeout in milliseconds (0 = no timeout, block indefinitely).
+
+  Returns `{:error, "timeout"}` if the timeout expires.
+  """
+  @spec tcp_recv_max(tcp_stream(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, binary()} | {:error, any()}
+  def tcp_recv_max(_stream, _max_len, _timeout_ms), do: err()
+
+  @doc """
   Get the local address to which the given TCP stream is bound.
   """
   @spec tcp_local_addr(tcp_stream()) :: {:inet.ip_address(), :inet.port_number()}
